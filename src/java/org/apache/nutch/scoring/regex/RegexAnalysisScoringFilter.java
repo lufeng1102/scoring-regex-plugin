@@ -36,7 +36,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.TreeMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -46,7 +46,7 @@ public class RegexAnalysisScoringFilter
   implements ScoringFilter {
 
   private Configuration conf;
-  private Map<Pattern,Float> regexScoreMap;
+  private Map<String,Float> regexScoreMap;
   private final static Logger LOG = LoggerFactory.getLogger(RegexAnalysisScoringFilter.class);
 
   public RegexAnalysisScoringFilter() {
@@ -69,11 +69,11 @@ public class RegexAnalysisScoringFilter
     }
   }
 
-  private Map<Pattern, Float> readRules(Reader reader) throws IOException {
+  private Map<String, Float> readRules(Reader reader) throws IOException {
 
     BufferedReader in = new BufferedReader(reader);
     String line;
-    Map<Pattern,Float> regexScoreMap = new HashMap<Pattern, Float>();
+    Map<String,Float> regexScoreMap = new TreeMap<String, Float>();
 
     while((line=in.readLine())!=null) {
       if (line.length() == 0) {
@@ -88,13 +88,12 @@ public class RegexAnalysisScoringFilter
       }
 
       String[] urlRegex = line.split(" ");
-      if (LOG.isTraceEnabled()) { LOG.trace("Adding rule [" + urlRegex + "]"); }
-
       //LOG.debug("Line:"+line + ":"+urlRegex.length);
       if(urlRegex.length ==2) {
         Float inc_rate = Float.parseFloat(urlRegex[1]);
-        Pattern pattern = Pattern.compile(urlRegex[0]);
-        regexScoreMap.put(pattern,inc_rate);
+        String patternTxt = urlRegex[0];
+        regexScoreMap.put(patternTxt,inc_rate);
+        if (LOG.isTraceEnabled()) { LOG.trace("Adding rule [" + patternTxt + "]"); }
       }
     }
     return regexScoreMap;
@@ -109,9 +108,18 @@ public class RegexAnalysisScoringFilter
 
   public float generatorSortValue(Text url, CrawlDatum datum, float initSort)
     throws ScoringFilterException {
-    for(Pattern pattern: regexScoreMap.keySet()){
-      if(pattern.matcher(url.toString()).find())
-        return datum.getScore() * initSort * regexScoreMap.get(pattern);
+	Pattern pattern;
+	Float scoreBoost;
+    for(String patternTxt: regexScoreMap.keySet()){
+    	pattern =  Pattern.compile(patternTxt);
+    	if(pattern.matcher(url.toString()).find()){
+    		scoreBoost = regexScoreMap.get(patternTxt);
+    		LOG.debug("Applying scoring to document | " + url.toString() + " | " + scoreBoost);
+    		if (datum.getScore() == 0){
+    			datum.setScore(1.0f);
+    		}
+    		return datum.getScore() * initSort * scoreBoost;
+    	}
     }
     return datum.getScore() * initSort;
   }
@@ -155,15 +163,17 @@ public class RegexAnalysisScoringFilter
     regex.setConf(NutchConfiguration.create());
     BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
     String line;
+    float newScore = 0f;
     while((line=in.readLine())!=null) {
       CrawlDatum crawlDatum = new CrawlDatum();
       crawlDatum.setScore(1.0f);
       try {
-        regex.generatorSortValue(new Text(line),crawlDatum,1.0F);
+    	  newScore = regex.generatorSortValue(new Text(line),crawlDatum,1.0F);
       } catch (ScoringFilterException e) {
         e.printStackTrace();
       }
       System.out.println(crawlDatum);
+      System.out.println("New Score: " + newScore);
       System.out.println("-------------");
     }
   }
